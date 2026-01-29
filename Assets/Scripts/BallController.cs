@@ -17,6 +17,7 @@ public class BallController : MonoBehaviour
     public float dribbleMagnetStrength = 15f;
     public float dribbleDistance = 1.2f; // Расстояние мяча от игрока при дриблинге
     public float dribbleSideOffset = 0.3f; // Боковое смещение при движении
+    public bool useDribbleAnchor = true; // Использовать точку привязки от игрока
     
     private Rigidbody rb;
     private PhysicsMaterial ballPhysicsMaterial;
@@ -91,11 +92,34 @@ public class BallController : MonoBehaviour
         Vector3 currentVelocity = (dribbler.position - lastDribblerVelocity) / Time.fixedDeltaTime;
         lastDribblerVelocity = dribbler.position;
         
-        // Целевая позиция мяча (впереди игрока с небольшим боковым смещением)
-        Vector3 forwardOffset = dribbler.forward * dribbleDistance;
-        Vector3 sideOffset = dribbler.right * Mathf.Sin(Time.time * 3f) * dribbleSideOffset; // Небольшое покачивание
-        Vector3 targetPosition = dribbler.position + forwardOffset + sideOffset;
-        targetPosition.y = 0.5f;
+        Vector3 targetPosition;
+        
+        // Проверяем, есть ли у игрока точка привязки для дриблинга
+        if (useDribbleAnchor && dribbler != null)
+        {
+            PlayerController playerController = dribbler.GetComponent<PlayerController>();
+            if (playerController != null && playerController.dribbleAnchor != null)
+            {
+                // Используем точку привязки от игрока
+                targetPosition = playerController.dribbleAnchor.position;
+            }
+            else
+            {
+                // Старый расчет как запасной вариант
+                Vector3 forwardOffset = dribbler.forward * dribbleDistance;
+                Vector3 sideOffset = dribbler.right * Mathf.Sin(Time.time * 3f) * dribbleSideOffset;
+                targetPosition = dribbler.position + forwardOffset + sideOffset;
+                targetPosition.y = 0.5f;
+            }
+        }
+        else
+        {
+            // Старый расчет
+            Vector3 forwardOffset = dribbler.forward * dribbleDistance;
+            Vector3 sideOffset = dribbler.right * Mathf.Sin(Time.time * 3f) * dribbleSideOffset;
+            targetPosition = dribbler.position + forwardOffset + sideOffset;
+            targetPosition.y = 0.5f;
+        }
         
         Vector3 direction = targetPosition - transform.position;
         float distance = direction.magnitude;

@@ -28,23 +28,32 @@ public class PlayerController : MonoBehaviour
     public float tackleCooldown = 1.5f; // Перезарядка отбора
     private float lastTackleTime = 0f;
     
+    [Header("Animation Timing")]
+    public float kickDelay = 0.3f; // Задержка удара после начала анимации
+    public float passDelay = 0.2f; // Задержка паса
+    public float chipDelay = 0.3f; // Задержка навеса
+    
     [Header("References")]
     public Transform cameraTransform;
     public Transform ballIndicator;
+    public Transform dribbleAnchor; // Точка привязки мяча для анимированной модели
     
     [Header("Ball Control")]
     private BallController currentBall;
-    private bool hasBallControl = false;
+    public bool hasBallControl = false;
     
     private CharacterController characterController;
     private Vector3 moveDirection;
     private float currentSpeed;
     private bool isRunning;
     private float verticalVelocity = 0f;
+    private PlayerAnimation playerAnimation;
+    private bool isPerformingAction = false; // Флаг выполнения действия
     
     void Start()
     {
         characterController = GetComponent<CharacterController>();
+        playerAnimation = GetComponent<PlayerAnimation>();
         
         if (cameraTransform == null)
         {
@@ -71,6 +80,9 @@ public class PlayerController : MonoBehaviour
     void Update()
     {
         if (cameraTransform == null) return;
+        
+        // Если выполняем действие (удар, пас) - пропускаем ввод
+        if (isPerformingAction) return;
         
         CheckForBall();
         HandleMovement();
@@ -105,7 +117,6 @@ public class PlayerController : MonoBehaviour
         // Автоматический подбор мяча
         if (currentBall != null && nearestDistance < dribbleRange)
         {
-            // Проверяем: мяч свободен или принадлежит другому игроку
             if (!currentBall.isBeingDribbled)
             {
                 StartDribbling();
@@ -183,25 +194,25 @@ public class PlayerController : MonoBehaviour
         // ПРОБЕЛ - Удар
         if (Input.GetKeyDown(KeyCode.Space))
         {
-            ShootBall();
+            StartAction("shoot");
         }
         
         // ЛЕВЫЙ CTRL - Сильный удар
         if (Input.GetKeyDown(KeyCode.LeftControl))
         {
-            PowerShot();
+            StartAction("power");
         }
         
         // E - Короткий пас
         if (Input.GetKeyDown(KeyCode.E))
         {
-            PassBall();
+            StartAction("pass");
         }
         
         // Q - Навес
         if (Input.GetKeyDown(KeyCode.Q))
         {
-            ChipBall();
+            StartAction("chip");
         }
         
         // R - Отпустить мяч
@@ -211,67 +222,179 @@ public class PlayerController : MonoBehaviour
         }
     }
     
+    void StartAction(string actionType)
+    {
+        if (isPerformingAction) return;
+        
+        isPerformingAction = true;
+        
+        switch (actionType)
+        {
+            case "shoot":
+                PerformShoot();
+                break;
+            case "power":
+                PerformPowerShot();
+                break;
+            case "pass":
+                PerformPass();
+                break;
+            case "chip":
+                PerformChip();
+                break;
+        }
+    }
+    
+    void EndAction()
+    {
+        isPerformingAction = false;
+        Debug.Log("Действие завершено");
+    }
+    
+    void PerformShoot()
+    {
+        if (playerAnimation != null)
+            playerAnimation.TriggerKick();
+        
+        // Запускаем удар через задержку (когда нога касается мяча в анимации)
+        Invoke("ExecuteShoot", kickDelay);
+        Invoke("EndAction", kickDelay + 0.1f); // Даем немного времени после удара
+    }
+    
+    void ExecuteShoot()
+    {
+        if (currentBall != null)
+        {
+            Vector3 shootDirection = transform.forward;
+            shootDirection.y = 0.3f;
+            currentBall.Kick(shootDirection, kickPower, false);
+            StopDribbling();
+            Debug.Log("Удар выполнен!");
+        }
+    }
+    
+    void PerformPowerShot()
+    {
+        if (playerAnimation != null)
+            playerAnimation.TriggerKick();
+        
+        Invoke("ExecutePowerShot", kickDelay);
+        Invoke("EndAction", kickDelay + 0.1f);
+    }
+    
+    void ExecutePowerShot()
+    {
+        if (currentBall != null)
+        {
+            Vector3 shootDirection = transform.forward;
+            shootDirection.y = 0.4f;
+            currentBall.Kick(shootDirection, strongKickPower, false);
+            StopDribbling();
+            Debug.Log("Сильный удар выполнен!");
+        }
+    }
+    
+    void PerformPass()
+    {
+        if (playerAnimation != null)
+            playerAnimation.TriggerKick();
+        
+        Invoke("ExecutePass", passDelay);
+        Invoke("EndAction", passDelay + 0.1f);
+    }
+    
+    void ExecutePass()
+    {
+        if (currentBall != null)
+        {
+            Vector3 passDirection = transform.forward;
+            currentBall.Pass(passDirection, passPower);
+            StopDribbling();
+            Debug.Log("Пас выполнен!");
+        }
+    }
+    
+    void PerformChip()
+    {
+        if (playerAnimation != null)
+            playerAnimation.TriggerKick();
+        
+        Invoke("ExecuteChip", chipDelay);
+        Invoke("EndAction", chipDelay + 0.1f);
+    }
+    
+    void ExecuteChip()
+    {
+        if (currentBall != null)
+        {
+            Vector3 chipDirection = transform.forward;
+            chipDirection.y = 0.6f;
+            currentBall.Kick(chipDirection, chipPower, true);
+            StopDribbling();
+            Debug.Log("Навес выполнен!");
+        }
+    }
+    
     void HandleSkillMoves()
     {
         if (!hasBallControl || currentBall == null) return;
         
-        // Проверяем кулдаун
         if (Time.time - lastSkillMoveTime < skillMoveCooldown) return;
         
-        // Цифры 1-4 для разных финтов
         Vector3 skillDirection = Vector3.zero;
         bool skillPressed = false;
+        int skillIndex = -1;
         
-        // 1 - Финт вправо
         if (Input.GetKeyDown(KeyCode.Alpha1))
         {
             skillDirection = transform.right;
             skillPressed = true;
-            Debug.Log("Финт ВПРАВО!");
+            skillIndex = 0;
         }
-        // 2 - Финт влево
         else if (Input.GetKeyDown(KeyCode.Alpha2))
         {
             skillDirection = -transform.right;
             skillPressed = true;
-            Debug.Log("Финт ВЛЕВО!");
+            skillIndex = 1;
         }
-        // 3 - Финт вперёд (толчок мяча)
         else if (Input.GetKeyDown(KeyCode.Alpha3))
         {
             skillDirection = transform.forward * 1.5f;
             skillPressed = true;
-            Debug.Log("Толчок ВПЕРЁД!");
+            skillIndex = 2;
         }
-        // 4 - Финт назад (перекат)
         else if (Input.GetKeyDown(KeyCode.Alpha4))
         {
             skillDirection = -transform.forward * 0.8f;
             skillPressed = true;
-            Debug.Log("Перекат НАЗАД!");
+            skillIndex = 3;
         }
         
         if (skillPressed)
         {
             skillDirection.y = 0f;
             currentBall.PerformSkillMove(skillDirection, skillMoveSpeed);
+            
+            if (playerAnimation != null)
+            {
+                playerAnimation.TriggerSkillMove(skillIndex);
+            }
+            
             lastSkillMoveTime = Time.time;
+            Debug.Log($"Финт {skillIndex + 1} выполнен!");
         }
     }
     
     void HandleTackle()
     {
-        // T - Отбор мяча
         if (Input.GetKeyDown(KeyCode.T))
         {
-            // Проверяем кулдаун
             if (Time.time - lastTackleTime < tackleCooldown)
             {
                 Debug.Log("Отбор на перезарядке!");
                 return;
             }
             
-            // Ищем мяч рядом
             Collider[] hits = Physics.OverlapSphere(transform.position, tackleRange);
             
             foreach (Collider hit in hits)
@@ -279,18 +402,16 @@ public class PlayerController : MonoBehaviour
                 BallController ball = hit.GetComponent<BallController>();
                 if (ball != null && ball.isBeingDribbled && ball.dribbler != transform)
                 {
-                    // Попытка отбора
                     bool success = ball.TryTackle(transform, tackleStrength);
                     
                     if (success)
                     {
                         Debug.Log("ОТБОР УСПЕШЕН!");
-                        // Через короткое время пытаемся подобрать мяч
                         Invoke("TryPickupAfterTackle", 0.4f);
                     }
                     else
                     {
-                        Debug.Log("Отбор не удался, игрок удержал мяч!");
+                        Debug.Log("Отбор не удался!");
                     }
                     
                     lastTackleTime = Time.time;
@@ -302,7 +423,6 @@ public class PlayerController : MonoBehaviour
     
     void TryPickupAfterTackle()
     {
-        // Пытаемся подобрать мяч после отбора
         CheckForBall();
     }
     
@@ -310,7 +430,7 @@ public class PlayerController : MonoBehaviour
     {
         if (currentBall.IsLooseBall())
         {
-            return; // Мяч ещё свободен после отбора/удара
+            return;
         }
         
         hasBallControl = true;
@@ -327,49 +447,21 @@ public class PlayerController : MonoBehaviour
         }
     }
     
-    void ShootBall()
-    {
-        Vector3 shootDirection = transform.forward;
-        shootDirection.y = 0.3f;
-        currentBall.Kick(shootDirection, kickPower, false);
-        StopDribbling();
-    }
-    
-    void PowerShot()
-    {
-        Vector3 shootDirection = transform.forward;
-        shootDirection.y = 0.4f;
-        currentBall.Kick(shootDirection, strongKickPower, false);
-        StopDribbling();
-    }
-    
-    void PassBall()
-    {
-        Vector3 passDirection = transform.forward;
-        currentBall.Pass(passDirection, passPower);
-        StopDribbling();
-    }
-    
-    void ChipBall()
-    {
-        Vector3 chipDirection = transform.forward;
-        chipDirection.y = 0.6f;
-        currentBall.Kick(chipDirection, chipPower, true);
-        StopDribbling();
-    }
-    
     void OnDrawGizmosSelected()
     {
-        // Зона обнаружения
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, detectionRange);
         
-        // Зона дриблинга
         Gizmos.color = Color.green;
         Gizmos.DrawWireSphere(transform.position, dribbleRange);
         
-        // Зона отбора
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, tackleRange);
+        
+        if (dribbleAnchor != null)
+        {
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawWireSphere(dribbleAnchor.position, 0.1f);
+        }
     }
 }
